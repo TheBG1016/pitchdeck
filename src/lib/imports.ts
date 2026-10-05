@@ -12,13 +12,25 @@ export const CSV_HEADERS = [
   ...[2, 3, 4].flatMap((n) => [`member_${n}_name`, `member_${n}_email`, `member_${n}_registration_number`]),
 ];
 
+// Registration form export headers (normalized) mapped to the template columns above.
+const FORM_HEADER_ALIASES: Record<string, string> = {
+  "team member 1 (team leader) email id": "team_leader_email",
+  "team member 1 (team leader) registration number": "team_leader_registration_number",
+  "team member 1 (team leader) college": "college",
+  ...Object.fromEntries([2, 3].flatMap((n) => [
+    [`team member ${n} name`, `member_${n}_name`],
+    [`team member ${n} email id`, `member_${n}_email`],
+    [`team member ${n} registration number`, `member_${n}_registration_number`],
+  ])),
+};
+
 export function parseTeamsCsv(content: string): ImportRow[] {
   if (Buffer.byteLength(content, "utf8") > 2_000_000) throw new AppError("CSV must be smaller than 2 MB.");
   let records: string[][];
   try { records = parse(content, { bom: true, skip_empty_lines: true, relax_quotes: false }); }
   catch { throw new AppError("The CSV could not be parsed. Check quotes and commas."); }
   if (records.length < 2) throw new AppError("CSV must have a header and at least one team.");
-  const header = records[0].map((cell) => normalize(cell).replaceAll(" ", "_"));
+  const header = records[0].map((cell) => FORM_HEADER_ALIASES[normalize(cell)] ?? normalize(cell).replaceAll(" ", "_"));
   const missing = CSV_HEADERS.slice(0, 5).filter((column) => !header.includes(column));
   if (missing.length) throw new AppError(`Missing required columns: ${missing.join(", ")}`);
   const result: ImportRow[] = [];

@@ -15,6 +15,18 @@ test("parses five teams and optional empty members", () => {
   assert.equal(parsed[0].members[0].registrationNumber, "REG1");
 });
 
+test("accepts the registration form export columns", () => {
+  const header = "Timestamp,Team Name,Team Leader Name,Team Member 1 (Team Leader) Email ID,Team Member 1 (Team Leader) Phone Number,Team Member 1 (Team Leader) College,Team Member 1 (Team Leader) Registration Number,Team Member 2 Name,Team Member 2 Email ID,Team Member 2 Phone Number,Team Member 2 College,Team Member 2 Registration Number,Team Member 3 Name,Team Member 3 Email ID,Team Member 3 Phone Number,Team Member 3 College,Team Member 3 Registration Number,Confirmation";
+  const line = "2026-10-01 10:00,Venture,Leader,Leader@Example.com,999,Example College,REG1,Two,two@example.com,888,Example College,REG2,,,,,,Yes";
+  const [team] = parseTeamsCsv([header, line].join("\n"));
+  assert.equal(team.name, "Venture");
+  assert.equal(team.college, "Example College");
+  assert.deepEqual(team.members.map((m) => [m.slot, m.name, m.email, m.registrationNumber]), [
+    [1, "Leader", "leader@example.com", "REG1"],
+    [2, "Two", "two@example.com", "REG2"],
+  ]);
+});
+
 test("rejects missing columns, duplicate identities, and partial members", () => {
   assert.throws(() => parseTeamsCsv("team_name,college\nA,B"), /Missing required columns/);
   assert.throws(() => parseTeamsCsv([CSV_HEADERS.join(","), row(1), row(1)].join("\n")), /duplicate email/);
