@@ -27,11 +27,26 @@ test("accepts the registration form export columns", () => {
   ]);
 });
 
-test("rejects missing columns, duplicate identities, and partial members", () => {
+test("rejects missing columns, duplicate identities, and incomplete leaders", () => {
   assert.throws(() => parseTeamsCsv("team_name,college\nA,B"), /Missing required columns/);
-  assert.throws(() => parseTeamsCsv([CSV_HEADERS.join(","), row(1), row(1)].join("\n")), /duplicate email/);
+  const sharedMember = row(2).split(","); sharedMember.splice(5, 3, "Leader 1", "leader1@example.com", "REG1");
+  assert.throws(() => parseTeamsCsv([CSV_HEADERS.join(","), row(1), sharedMember.join(",")].join("\n")), /duplicate email leader1@example.com/);
+  const noLeaderEmail = row(3).split(","); noLeaderEmail[2] = "";
+  assert.throws(() => parseTeamsCsv([CSV_HEADERS.join(","), noLeaderEmail.join(",")].join("\n")), /team_leader needs/);
+});
+
+test("a later row from the same leader replaces the earlier one", () => {
+  const resubmitted = row(1).split(","); resubmitted[0] = "Venture 1 Renamed";
+  const byEmail = row(2).split(","); byEmail[3] = "REG2-NEW";
+  const parsed = parseTeamsCsv([CSV_HEADERS.join(","), row(1), row(2), resubmitted.join(","), byEmail.join(",")].join("\n"));
+  assert.deepEqual(parsed.map((team) => team.name), ["Venture 1 Renamed", "Venture 2"]);
+  assert.equal(parsed[1].members[0].registrationNumber, "REG2-NEW");
+});
+
+test("skips members 2-4 with missing fields", () => {
   const partial = row(2).split(","); partial[5] = "Member Two";
-  assert.throws(() => parseTeamsCsv([CSV_HEADERS.join(","), partial.join(",")].join("\n")), /member_2 needs/);
+  const [team] = parseTeamsCsv([CSV_HEADERS.join(","), partial.join(",")].join("\n"));
+  assert.equal(team.members.length, 1);
 });
 
 test("initial credentials are eight characters and hash verification works", async () => {

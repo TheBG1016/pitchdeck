@@ -33,36 +33,56 @@ export function parseTeamsCsv(content: string): ImportRow[] {
   const header = records[0].map((cell) => FORM_HEADER_ALIASES[normalize(cell)] ?? normalize(cell).replaceAll(" ", "_"));
   const missing = CSV_HEADERS.slice(0, 5).filter((column) => !header.includes(column));
   if (missing.length) throw new AppError(`Missing required columns: ${missing.join(", ")}`);
-  const result: ImportRow[] = [];
-  const emailSet = new Set<string>();
-  const registrationSet = new Set<string>();
-  const errors: string[] = [];
+  const rowsRead: { line: number; team: ImportRow; errors: string[] }[] = [];
   for (let index = 1; index < records.length; index++) {
     const row = records[index];
     const get = (key: string) => (row[header.indexOf(key)] ?? "").trim();
     const name = get("team_name");
     const college = get("college");
     const members: ImportMember[] = [];
+    const rowErrors: string[] = [];
     for (let slot = 1; slot <= 4; slot++) {
       const prefix = slot === 1 ? "team_leader" : `member_${slot}`;
       const member = { slot, name: get(`${prefix}_name`), email: normalize(get(`${prefix}_email`)), registrationNumber: get(`${prefix}_registration_number`) };
       const filled = [member.name, member.email, member.registrationNumber].filter(Boolean).length;
-      if (slot === 1 || filled) {
-        if (filled !== 3) errors.push(`Row ${index + 1}: ${prefix} needs a name, email, and registration number.`);
-        else members.push(member);
-      }
+      // Members 2-4 with missing fields are skipped; the leader must be complete.
+      if (filled === 3) members.push(member);
+      else if (slot === 1) rowErrors.push(`Row ${index + 1}: ${prefix} needs a name, email, and registration number.`);
     }
-    if (!name || !college) errors.push(`Row ${index + 1}: team name and college are required.`);
+    if (!name || !college) rowErrors.push(`Row ${index + 1}: team name and college are required.`);
     for (const member of members) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(member.email)) errors.push(`Row ${index + 1}: invalid email ${member.email}.`);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(member.email)) rowErrors.push(`Row ${index + 1}: invalid email ${member.email}.`);
+    }
+    rowsRead.push({ line: index + 1, team: { name, college, members }, errors: rowErrors });
+  }
+  // A later row with the same team leader (registration number or email) is a resubmission and replaces the earlier row.
+  const kept = rowsRead.map(() => true);
+  const leaderRows = new Map<string, number>();
+  rowsRead.forEach(({ team }, index) => {
+    const leader = team.members.find((member) => member.slot === 1);
+    if (!leader) return;
+    for (const key of [`reg:${normalize(leader.registrationNumber)}`, `email:${leader.email}`]) {
+      const earlier = leaderRows.get(key);
+      if (earlier !== undefined) kept[earlier] = false;
+      leaderRows.set(key, index);
+    }
+  });
+  const result: ImportRow[] = [];
+  const emailSet = new Set<string>();
+  const registrationSet = new Set<string>();
+  const errors: string[] = [];
+  rowsRead.forEach(({ line, team, errors: rowErrors }, index) => {
+    if (!kept[index]) return;
+    errors.push(...rowErrors);
+    for (const member of team.members) {
       const reg = normalize(member.registrationNumber);
-      if (emailSet.has(member.email)) errors.push(`Row ${index + 1}: duplicate email ${member.email}.`);
-      if (registrationSet.has(reg)) errors.push(`Row ${index + 1}: duplicate registration number ${member.registrationNumber}.`);
+      if (emailSet.has(member.email)) errors.push(`Row ${line}: duplicate email ${member.email}.`);
+      if (registrationSet.has(reg)) errors.push(`Row ${line}: duplicate registration number ${member.registrationNumber}.`);
       emailSet.add(member.email);
       registrationSet.add(reg);
     }
-    result.push({ name, college, members });
-  }
+    result.push(team);
+  });
   if (result.length > 1000) errors.push("CSV may contain at most 1,000 teams.");
   if (errors.length) throw new AppError(errors.slice(0, 20).join("\n"));
   return result;
